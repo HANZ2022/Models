@@ -1,0 +1,108 @@
+import os
+from PIL import Image
+from typing import Tuple, List
+import matplotlib.pyplot as plt
+
+import torch
+from torch.utils.data import Dataset
+
+from utils.image import modcrop_tensor
+from data import transforms
+from data.basedataset import BaseDataset
+
+
+class Benchmark(BaseDataset):
+    def __init__(self,
+                 dataroot: str,
+                 name: str,
+                 mode: str,
+                 scale: int,
+                 crop_size: int = 64,
+                 rgb_range: int = 1) -> None:
+        super(Benchmark, self).__init__(dataroot=dataroot,
+                                        name=name,
+                                        mode=mode,
+                                        scale=scale,
+                                        crop_size=crop_size,
+                                        rgb_range=rgb_range)
+        
+        self.lr_dir_path = os.path.join(dataroot, "testsets", self.name, self.mode, f"LR_bicubic_x{self.scale}")
+        self.hr_dir_path = os.path.join(dataroot, "testsets", self.name, self.mode, "HR")
+        
+        self.lr_files = [os.path.join(self.lr_dir_path, x) for x in sorted(os.listdir(self.lr_dir_path))]
+        self.hr_files = [os.path.join(self.hr_dir_path, x) for x in sorted(os.listdir(self.hr_dir_path))]
+        
+        self.transforms = transforms.Compose([
+            transforms.ToTensor(rgb_range=self.rgb_range)
+        ])
+        self.degrade = transforms.BicubicDownsample(scale)
+        
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        idx = self._get_index(index)
+        hr_path = self.hr_files[idx]
+        lr_path = self.lr_files[idx]
+
+        hr = Image.open(hr_path).convert("RGB")
+        lr = Image.open(lr_path).convert("RGB")
+
+        img_name = os.path.splitext(os.path.basename(lr_path))[0]
+
+        lr = self.transforms(lr)
+        hr = self.transforms(hr)
+
+        # assert that images are divisable by 2
+        c, lr_h, lr_w = lr.shape
+        pad_h, pad_w = 0, 0
+        if lr_h % 2 != 0 or lr_w % 2 != 0:
+            # Add padding for non-divisible dimensions
+            if lr_h % 2 != 0:
+                pad_h = 1
+                # Create white padding (value of 1.0 since we're in [0,1] range)
+                padding = torch.ones((c, 1, lr_w), dtype=lr.dtype)
+                lr = torch.cat([lr, padding], dim=1)
+
+                # Also pad the HR image accordingly (scale times bigger)
+                hr_padding = torch.ones((c, self.scale, hr.shape[2]), dtype=hr.dtype)
+                hr = torch.cat([hr, hr_padding], dim=1)
+
+            if lr_w % 2 != 0:
+                pad_w = 1
+                # Create white padding
+                padding = torch.ones((c, lr_h + pad_h, 1), dtype=lr.dtype)
+                lr = torch.cat([lr, padding], dim=2)
+
+                # Also pad the HR image accordingly
+                hr_padding = torch.ones((c, hr.shape[1], self.scale), dtype=hr.dtype)
+                hr = torch.cat([hr, hr_padding], dim=2)
+
+            print(f"Added padding to image {img_name}: height_pad={pad_h}, width_pad={pad_w}")
+        else:
+            # Original code for when dimensions are already divisible by 2
+            # This ensures the dimensions are still even multiples
+            lr_hr, lr_wr = int(lr_h / 2), int(lr_w / 2)
+            lr = lr[:, :lr_hr * 2, :lr_wr * 2]
+            hr = hr[:, :lr.shape[-2] * self.scale, :lr.shape[-1] * self.scale]
+
+        assert lr.shape[-1] * self.scale == hr.shape[-1]
+        assert lr.shape[-2] * self.scale == hr.shape[-2]
+
+        return {"lr":lr.to(torch.float32), "hr":hr.to(torch.float32), "name":img_name,"pad_h": pad_h, "pad_w": pad_w}
+
+
+def set5(config):
+    return Benchmark(config.dataroot, "Set5", mode="val", scale=config.scale, rgb_range=config.rgb_range)
+
+
+def set14(config):
+    return Benchmark(config.dataroot, "Set14", mode="val", scale=config.scale, rgb_range=config.rgb_range)
+
+
+def b100(config):
+    return Benchmark(config.dataroot, "B100", mode="val", scale=config.scale, rgb_range=config.rgb_range)
+
+
+def urban100(config):
+    return Benchmark(config.dataroot, "Urban100", mode="val", scale=config.scale, rgb_range=config.rgb_range)
+
+def div2k(config):
+    return Benchmark(config.dataroot, "div2k", mode="val", scale=config.scale, rgb_range=config.rgb_range)
