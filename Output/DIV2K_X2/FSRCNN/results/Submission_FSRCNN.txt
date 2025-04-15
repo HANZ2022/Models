@@ -1,0 +1,5 @@
+25-04-01 20:36:07.626 : ------> Results of X2
+25-04-01 20:36:07.626 : ------> Average PSNR (RGB) of (FSRCNN) is : 33.567995 dB
+25-04-01 20:36:07.627 : ------> Average SSIM (RGB) of (FSRCNN) is : 0.926047
+25-04-01 20:36:07.627 : ------> Average PSNR (Y) of (FSRCNN) is : 34.890934 dB
+25-04-01 20:36:07.627 : ------> Average SSIM (Y) of (FSRCNN) is : 0.934636
